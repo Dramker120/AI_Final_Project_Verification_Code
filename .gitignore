@@ -172,3 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# ignore the folder that contains dataset
+/data/
+
+# ignore kaggle key
+kaggle.json
+
