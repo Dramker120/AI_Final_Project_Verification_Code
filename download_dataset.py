@@ -6,10 +6,10 @@ DEST_DIR = "data"
 CHECK_FILE = os.path.join(DEST_DIR, "train_num2_var", "7","00a7B3J.jpg")
 
 if os.path.exists(CHECK_FILE):
-    print(f"✅ 已偵測到資料集已存在：{CHECK_FILE}")
-    print("⏩ 跳過下載。")
+    print(f"Dataset already exists : {CHECK_FILE}")
+    print("skipped.")
 else:
-    print("📥 開始下載資料集...")
+    print(" start to download dataset...")
 
     os.makedirs(DEST_DIR, exist_ok=True)
 
@@ -26,10 +26,10 @@ else:
         text=True
     )
 
-    out, err = proc.communicate(input="y\n")  # 自動輸入 y 同意授權
+    out, err = proc.communicate(input="y\n")  # Automatically enter y to agree to the authorization
 
     print(out)
     if proc.returncode == 0:
-        print("✅ 資料集下載並解壓縮完成！")
+        print("The dataset has been downloaded and unzipped!!!")
     else:
-        print(f"❌ 下載失敗，錯誤訊息:\n{err}")
+        print(f"Download failed, error message : \n{err}")
