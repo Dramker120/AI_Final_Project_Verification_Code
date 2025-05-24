@@ -20,3 +20,9 @@
       python download_dataset.py
       # The script will handle download, unzip, and license agreement automatically.
    ```
+### 4. Split dataset
+   ```bash
+      python split_dataset.py
+      # This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
+   ```
+   (After Spliting, you can delete the original dataset downloaded at step 3 if you want. We will no longer use it.)
