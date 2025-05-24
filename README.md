@@ -13,9 +13,9 @@
 ### 3-1. Manual download
    ```bash
    kaggle datasets download -d bhh258/train-num2-var --unzip
-   # You might be prompted to accept the license by typing y.
+   # You might be prompted to accept the license by typing "y" or "yes".
    ```
-### 3-2. Automatic download
+### 3-2. Automatic download (recommend)
    ```bash
       python download_dataset.py
       # The script will handle download, unzip, and license agreement automatically.
@@ -26,3 +26,4 @@
       # This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
    ```
    (After Spliting, you can delete the original dataset downloaded at step 3 if you want. We will no longer use it.)
+##  Training a model for recognizing verification codes
