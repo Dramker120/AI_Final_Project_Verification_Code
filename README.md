@@ -27,3 +27,24 @@
    ```
    (After Spliting, you can delete the original dataset downloaded at step 3 if you want. We will no longer use it.)
 ##  Training a model for recognizing verification codes
+### 1. install environment
+We recommend using Python 3.8 or above.
+#### Use GPU (recommend)
+Please install the correct version of PyTorch that matches your system’s CUDA version (instructions not provided here).
+#### Using CPU Only
+You can use :
+```bash
+pip install torch torchvision torchaudio
+```
+#### Other libraries
+All other required libraries are listed in "requirements.txt".
+You can install them with the following command :
+```bash
+pip install -r requirements.txt
+```
+### 2. Start Recognizing
+```bash
+python Recognize.py
+# Average runtime: approximately 25 minutes
+```
+
