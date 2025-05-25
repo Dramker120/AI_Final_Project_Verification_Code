@@ -47,4 +47,4 @@ pip install -r requirements.txt
 python Recognize.py
 # Average runtime: approximately 35 minutes
 ```
-##Results: Test accuracy is about 65%
+## Results: Test accuracy is about 65%
