@@ -1,0 +1,8 @@
+# GPU 版 torch 請不要直接從這裡裝，請參考 README.md 說明
+torchvision
+torchaudio
+pandas
+matplotlib
+tqdm
+loguru
+pillow
