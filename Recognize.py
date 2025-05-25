@@ -55,18 +55,18 @@ def main():
     train_losses = []
     val_losses = []
     val_length_accuracy = []
-    val_chars_accuracy = []
+    val_accuracy = []
     max_acc = 0
 
-    EPOCHS = 30
+    EPOCHS = 25
     for epoch in range(EPOCHS): #epoch
         train_loss = train(model, train_loader, criterion, optimizer, device)
-        val_loss, val_acc, val_len_acc, val_char_acc = validate(model, val_loader, criterion, device)
+        val_loss, val_acc, val_len_acc = validate(model, val_loader, criterion, device)
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
         val_length_accuracy.append(val_len_acc)
-        val_chars_accuracy.append(val_char_acc)
+        val_accuracy.append(val_acc)
         max_acc=max(max_acc,val_acc)
         # (TODO) Print the training log to help you monitor the training process
         #        You can save the model for future usage
@@ -74,7 +74,6 @@ def main():
           f"Train Loss = {train_loss:.4f}, "
           f"Val Loss = {val_loss:.4f}, "
           f"Val Len Acc = {val_len_acc:.2%}, "
-          f"Val Char Acc = {val_char_acc:.2%}, "
           f"Val Acc = {val_acc:.2%}")
 
     logger.info(f"Best Accuracy: {max_acc:.4f}")
@@ -83,7 +82,7 @@ def main():
     #CNN - plot
     
     plot(train_losses, val_losses)
-    plot2(val_length_accuracy, val_chars_accuracy)
+    plot2(val_length_accuracy, val_accuracy)
     
     #CNN - test
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False,num_workers=6,pin_memory=True,persistent_workers=True)

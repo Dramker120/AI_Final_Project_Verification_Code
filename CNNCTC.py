@@ -15,25 +15,25 @@ class CNNCTC(nn.Module):
     def __init__(self, num_classes=63): # 1+10+26*2 (1 for "blank")
         super(CNNCTC, self).__init__()
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=3, padding=1),  # input: (B, 1, 48, 128)
+            nn.Conv2d(1, 64, kernel_size=3, padding=1),  # input: (B, 1, 60, 160)
             nn.ReLU(),
             # No maxpool to try get subtle features.
 
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2, 2),                          # (B, 128, 24, 64)
+            nn.MaxPool2d(2, 2),                          # (B, 128, 30, 80)
             
             nn.Conv2d(128, 256, kernel_size=5, padding=2),
             nn.ReLU(),
-            nn.MaxPool2d(2, 2),                          # (B, 256, 12, 32)
+            nn.MaxPool2d(2, 2),                          # (B, 256, 15, 40)
         )
         #self.dropout=nn.Dropout(p=0.3)
-        self.linear = nn.Linear(256 * 12, num_classes)  # 把高度整合進來，變成序列每一步的輸出
+        self.linear = nn.Linear(256 * 15, num_classes)  # 把高度整合進來，變成序列每一步的輸出
 
-    def forward(self, x):  # x: (B, 1, 48, 128)
-        x = self.cnn(x)     # (B, 256, 12, 32)
-        x = x.permute(3, 0, 1, 2)  # -> (T=16, B, C=256, H=12)
-        x = x.contiguous().view(x.size(0), x.size(1), -1)  # (T, B, 256*12)
+    def forward(self, x):  # x: (B, 1, 60, 160)
+        x = self.cnn(x)     # (B, 256, 15, 40)
+        x = x.permute(3, 0, 1, 2)  # -> (T=40, B, C=256, H=15)
+        x = x.contiguous().view(x.size(0), x.size(1), -1)  # (T, B, 256*15)
         #x=self.dropout(x)   # second method in experiment
         x = self.linear(x)  # (T, B, num_classes)
         return x
@@ -94,8 +94,6 @@ def validate(model: CNNCTC, val_loader: DataLoader, criterion, device) -> Tuple[
     total_correct = 0
     total_samples = 0
     length_accuracy = 0
-    total_chars = 0
-    correct_chars = 0
     with torch.no_grad():
         for inputs, labels in tqdm(val_loader):
             inputs = inputs.to(device)
@@ -126,17 +124,12 @@ def validate(model: CNNCTC, val_loader: DataLoader, criterion, device) -> Tuple[
                     total_correct += 1
                 if len(pred) == len(label):
                     length_accuracy += 1
-                    for pc, lc in zip(pred, label):
-                        if pc==lc: 
-                            correct_chars+=1
-                total_chars += len(label)
             total_samples += len(labels)
 
     avg_loss = total_loss / len(val_loader)
     accuracy = total_correct / total_samples
     length_accuracy /= total_samples
-    chars_accuracy = correct_chars/total_chars
-    return avg_loss, accuracy, length_accuracy, chars_accuracy
+    return avg_loss, accuracy, length_accuracy
 
 def test(model: CNNCTC, val_loader: DataLoader, criterion, device) -> float:
     model.eval()
@@ -160,5 +153,5 @@ def test(model: CNNCTC, val_loader: DataLoader, criterion, device) -> float:
                     total_correct += 1
             total_samples += len(labels)
 
-    accuracy = total_correct / len(label_strs)*125
+    accuracy = total_correct / total_samples
     return accuracy

@@ -16,7 +16,7 @@ class TrainDataset(Dataset):
     def __init__(self, images, labels):
         self.transform = transforms.Compose([
             transforms.Grayscale(num_output_channels=1),
-            transforms.Resize((48, 128)),
+            transforms.Resize((60,160)),
             transforms.ToTensor()
         ])
         self.images = images
@@ -39,7 +39,7 @@ class ValidateDataset(Dataset):
     def __init__(self, images, labels):
         self.transform = transforms.Compose([
             transforms.Grayscale(num_output_channels=1),
-            transforms.Resize((48, 128)),
+            transforms.Resize((60,160)),
             transforms.ToTensor()
         ])
         self.images = images
@@ -59,7 +59,7 @@ class TestDataset(Dataset):
     def __init__(self, images, labels):
         self.transform = transforms.Compose([
             transforms.Grayscale(num_output_channels=1),
-            transforms.Resize((48, 128)),
+            transforms.Resize((60,160)),
             transforms.ToTensor()
         ])
         self.images = images
@@ -135,15 +135,15 @@ def plot(train_losses: List, val_losses: List):
     plt.show()
     print("Save the plot to 'loss.png'")
     return
-def plot2(len_accs: List, char_accs: List):
+def plot2(len_accs: List, val_accs: List):
     # (TODO) Plot the training loss and validation loss of CNN, and save the plot to 'loss.png'
     #        xlabel: 'Epoch', ylabel: 'Loss'
     epochs=range(1,len(len_accs)+1)
     plt.plot(epochs, len_accs, label='Length Accuracy')
-    plt.plot(epochs, char_accs, label='Character Accuracy')
+    plt.plot(epochs, val_accs, label='Validate Accuracy')
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy')
-    plt.title('Length and Character Accuracy')
+    plt.title('Length and Validate Accuracy')
     plt.legend()
     plt.grid(True)
     plt.savefig('acc.png')
