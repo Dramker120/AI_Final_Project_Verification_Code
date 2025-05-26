@@ -16,25 +16,28 @@ class CNNCTC(nn.Module):
         super(CNNCTC, self).__init__()
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, kernel_size=3, padding=1),  # input: (B, 1, 60, 160)
+            nn.BatchNorm2d(64),
             nn.ReLU(),
             # No maxpool to try get subtle features.
 
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),                          # (B, 128, 30, 80)
             
             nn.Conv2d(128, 256, kernel_size=5, padding=2),
+            nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),                          # (B, 256, 15, 40)
         )
-        #self.dropout=nn.Dropout(p=0.3)
+        self.dropout=nn.Dropout(p=0.3)
         self.linear = nn.Linear(256 * 15, num_classes)  # 把高度整合進來，變成序列每一步的輸出
 
     def forward(self, x):  # x: (B, 1, 60, 160)
         x = self.cnn(x)     # (B, 256, 15, 40)
         x = x.permute(3, 0, 1, 2)  # -> (T=40, B, C=256, H=15)
         x = x.contiguous().view(x.size(0), x.size(1), -1)  # (T, B, 256*15)
-        #x=self.dropout(x)   # second method in experiment
+        x=self.dropout(x)   # second method in experiment
         x = self.linear(x)  # (T, B, num_classes)
         return x
     
