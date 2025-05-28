@@ -45,7 +45,7 @@ pip install -r requirements.txt
 ### 2. Start Recognizing
 ```bash
 python Recognize.py
-# Average runtime: approximately 35 minutes
+# Average runtime: approximately 1 hour
 ```
-## Results: Test accuracy is about 80%
+## Results: Test accuracy is about 84%
 ![Test result](Recognition_result.png)

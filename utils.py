@@ -21,7 +21,6 @@ class TrainDataset(Dataset):
         ])
         self.images = images
         self.labels = labels # the indices convert from image name ("load_train_dataset" func handle)
-        #self.char_to_idx = char_to_idx (如果要這一行, init()裡面要多加 ", char_to_idx" )
 
     def __len__(self):
         return len(self.images)

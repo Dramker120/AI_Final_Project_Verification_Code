@@ -10,7 +10,7 @@ input_base = 'data/train_num2_var'
 output_base = 'data'
 
 for split in ['train', 'val', 'test']:
-    #exxist_ok : if the folder already exists, do nothing(no error reported).
+    #exist_ok : if the folder already exists, do nothing(no error reported).
     os.makedirs(os.path.join(output_base, split), exist_ok=True)
 
 for length in range(4, 8):  # 4~7
