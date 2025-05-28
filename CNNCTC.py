@@ -11,26 +11,49 @@ import csv
 import os
 from utils import char2idx, idx2char# validate function need them to compute loss and accuracy
 
+class DynamicDropout(nn.Module):
+    def __init__(self, p=0.3):
+        super().__init__()
+        self.p = p
+
+    def set_p(self, new_p):
+        self.p = new_p
+
+    def forward(self,x):
+        return F.dropout(x, p=self.p, training=self.training)
+
 class CNNCTC(nn.Module):
     def __init__(self, num_classes=63): # 1+10+26*2 (1 for "blank")
         super(CNNCTC, self).__init__()
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=3, padding=1),  # input: (B, 1, 60, 160)
+            nn.Conv2d(1, 64, kernel_size=3, padding=1),  # input: (B, 3, 60, 160)
             nn.BatchNorm2d(64),
             nn.ReLU(),
             # No maxpool to try get subtle features.
 
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.Conv2d(64, 256, kernel_size=3, padding=1), # input: (B, 64, 60, 160)
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),                         # (B, 256, 30, 80)
+
+            nn.Conv2d(256, 128, kernel_size=1), # input: (B, 256, 30, 80)
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.MaxPool2d(2, 2),                          # (B, 128, 30, 80)
             
-            nn.Conv2d(128, 256, kernel_size=5, padding=2),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),  # input: (B, 128, 30, 80)
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+
+            nn.Conv2d(128, 256, kernel_size=1), # input: (B, 128, 30, 80)
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+
+            nn.Conv2d(256, 256, kernel_size=3, padding=1), # input: (B, 256, 30, 80)
             nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),                          # (B, 256, 15, 40)
         )
-        self.dropout=nn.Dropout(p=0.3)
+        self.dropout=DynamicDropout(p=0.3)
         self.linear = nn.Linear(256 * 15, num_classes)  # 把高度整合進來，變成序列每一步的輸出
 
     def forward(self, x):  # x: (B, 1, 60, 160)

@@ -17,9 +17,13 @@ Notice:
     2) You can ignore the suggested data type if you want
 """
 
-def ctc_collate_fn(batch): # only train need since 
+def ctc_collate_fn(batch): # only train need since SS
     images, labels = zip(*batch)
     return torch.stack(images), labels  # 不對 label 做 padding
+
+def dynamic_p(epoch, stationary = True):
+    if stationary: return 0.3
+    return 0.1+1/( (epoch//7) + 2)
 
 def main():
     """
@@ -40,7 +44,7 @@ def main():
     val_dataset = ValidateDataset(val_images, val_labels)
     test_dataset = TestDataset(test_images, test_labels)
 
-    #CNN - train and validate
+    #CNNCTC - train and validate
     logger.info("Start training CNNCTC")
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True,num_workers=6,pin_memory=True,persistent_workers=True, collate_fn=ctc_collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False,num_workers=6,pin_memory=True,persistent_workers=True)
@@ -58,33 +62,39 @@ def main():
     val_accuracy = []
     max_acc = 0
 
-    EPOCHS = 25
+
+    EPOCHS = 100
+    record_times = 0
     for epoch in range(EPOCHS): #epoch
+        new_p = dynamic_p(epoch,stationary = False)
+        model.dropout.set_p(new_p)
         train_loss = train(model, train_loader, criterion, optimizer, device)
         val_loss, val_acc, val_len_acc = validate(model, val_loader, criterion, device)
-
         train_losses.append(train_loss)
         val_losses.append(val_loss)
         val_length_accuracy.append(val_len_acc)
         val_accuracy.append(val_acc)
+        if val_acc < max_acc+0.01: record_times += 1
+        else: record_times = 0
         max_acc=max(max_acc,val_acc)
-        # (TODO) Print the training log to help you monitor the training process
-        #        You can save the model for future usage
         print(f"Epoch {epoch+1}/{EPOCHS}: "
+          f"Dropout p = {new_p:.4f}, "
           f"Train Loss = {train_loss:.4f}, "
           f"Val Loss = {val_loss:.4f}, "
           f"Val Len Acc = {val_len_acc:.2%}, "
           f"Val Acc = {val_acc:.2%}")
+        if record_times == 10: 
+            print(f"At Epoch {epoch+1}, guess that overfitting may happen!")
+            break
 
     logger.info(f"Best Accuracy: {max_acc:.4f}")
-
     
-    #CNN - plot
+    #CNNCTC - plot
     
     plot(train_losses, val_losses)
     plot2(val_length_accuracy, val_accuracy)
     
-    #CNN - test
+    #CNNCTC - test
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False,num_workers=6,pin_memory=True,persistent_workers=True)
     test_accuracy = test(model, test_loader, criterion, device)
     print(f"Test accuracy = {test_accuracy:.3%}")
