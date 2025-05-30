@@ -8,6 +8,7 @@ from torchvision import transforms
 from PIL import Image
 import string
 import random
+from tqdm import tqdm
 
 # -------------------------
 # Config
@@ -17,7 +18,7 @@ IMG_WIDTH = 160
 MAX_LEN = 7
 EMBED_DIM = 32
 BATCH_SIZE = 64
-EPOCHS = 10
+EPOCHS = 100
 NOISE_DIM = 100
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 CHARS = string.ascii_uppercase + string.digits
@@ -120,7 +121,15 @@ def train():
     optim_D = torch.optim.Adam(D.parameters(), lr=0.0002)
 
     for epoch in range(EPOCHS):
-        for i, (real_imgs, text_ids) in enumerate(dataloader):
+        print(f"\n===== Epoch {epoch + 1}/{EPOCHS} =====")
+        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}", leave=False)
+
+        total_g_loss = 0.0
+        total_d_loss = 0.0
+        total_batches = 0
+
+
+        for i, (real_imgs, text_ids) in enumerate(pbar):
             batch_size = real_imgs.size(0)
             real_imgs = real_imgs.to(DEVICE)
             text_ids = text_ids.to(DEVICE)
@@ -148,10 +157,33 @@ def train():
             d_loss.backward()
             optim_D.step()
 
-            if i % 100 == 0:
-                print(f"[Epoch {epoch}/{EPOCHS}] [Batch {i}] D_loss: {d_loss.item():.4f}, G_loss: {g_loss.item():.4f}")
+            total_d_loss += d_loss.item()
+            total_g_loss += g_loss.item()
+            total_batches += 1
 
-        torch.save(G.state_dict(), f"generator_epoch{epoch}.pt")
+
+
+            pbar.set_postfix(D_loss=d_loss.item(), G_loss=g_loss.item())
+
+        avg_g_loss = total_g_loss / total_batches
+        avg_d_loss = total_d_loss / total_batches
+        print(f"[Epoch {epoch + 1}] Avg D_loss: {avg_d_loss:.4f}, Avg G_loss: {avg_g_loss:.4f}")
+
+
+        torch.save(G.state_dict(), f"models/generator_epoch{epoch}.pt")
+
+        G.eval()
+        TE.eval()
+        os.makedirs("epoch_evolution", exist_ok=True)
+        with torch.no_grad():
+            sample_text = "HELLO12"
+            text_ids = text_to_ids(sample_text).unsqueeze(0).to(DEVICE)
+            text_emb = TE(text_ids)
+            noise = torch.randn(1, NOISE_DIM, device=DEVICE)
+            gen_img = G(noise, text_emb).view(1, 1, IMG_HEIGHT, IMG_WIDTH)
+            img = (gen_img + 1) / 2  # 將 Tanh 輸出轉成 0~1
+            from torchvision.utils import save_image
+            save_image(img, f"epoch_evolution/epoch_{epoch}.png")
 
 if __name__ == "__main__":
     train()
