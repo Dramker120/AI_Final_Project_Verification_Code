@@ -46,7 +46,7 @@ parser.add_argument("--generate_only", action='store_true', help="只生成數�
 parser.add_argument("--load_model", type=str, default="", help="載入已訓練的模型路徑")
 parser.add_argument("--save_model", action='store_true', help="保存訓練完成的模型")
 parser.add_argument("--generate_count", type=int, default=20000, help="要生成的驗證碼圖片數量")
-parser.add_argument("--output_dir", type=str, default="generated_data/train", help="生成圖片的輸出目錄")
+parser.add_argument("--output_dir", type=str, default="generated_images", help="生成圖片的輸出目錄")
 parser.add_argument("--lambda_cls", type=float, default=10.0, help="Weight for classification loss in generator") # 新增：分類損失的權重
 
 opt = parser.parse_args()
