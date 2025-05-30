@@ -175,7 +175,8 @@ cython_debug/
 
 # ignore the folder that contains dataset
 /data/
-
+/generated_images/
+/images/
 # ignore kaggle key
 kaggle.json
 
