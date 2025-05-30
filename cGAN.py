@@ -424,7 +424,7 @@ def generate_verification_codes(generator, count, output_dir, batch_size=64):
                 img_pil = transforms.ToPILImage()(img_normalized)
                 
                 # 檔名格式：驗證碼_序號.jpg
-                filename = f"{code_str}_{generated_count:06d}.jpg"
+                filename = f"{code_str}.jpg"
                 img_pil.save(os.path.join(output_dir, filename))
                 
                 generated_count += 1

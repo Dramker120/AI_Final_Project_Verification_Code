@@ -57,7 +57,7 @@ The captcha in the filename does not match the actual image captcha, which needs
 ```bash
 python cGAN.py --n_epochs 100 --save_model --lambda_cls 10.0
 ```
-### 2. Generating datasets for recognizing
+### 2. Generate datasets for recognizing
 ```bash
 python cGAN.py --generate_only --load_model models/cgan_final.pth --generate_count 20000 --output_dir generated_images
 ```
