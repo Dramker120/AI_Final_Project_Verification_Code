@@ -179,3 +179,4 @@ cython_debug/
 # ignore kaggle key
 kaggle.json
 
+.DS_Store
