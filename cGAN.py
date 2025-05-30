@@ -23,7 +23,7 @@ char2idx = {ch: idx for idx, ch in enumerate(CHARS)}
 idx2char = {idx: ch for ch, idx in char2idx.items()}
 
 os.makedirs("images", exist_ok=True)
-os.makedirs("generated_data/train", exist_ok=True)
+os.makedirs("generated_images", exist_ok=True)
 os.makedirs("models", exist_ok=True)  # 新增：保存模型的目錄
 
 parser = argparse.ArgumentParser()
