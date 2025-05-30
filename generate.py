@@ -117,8 +117,10 @@ def train():
     TE = TextEncoder().to(DEVICE)
 
     criterion = nn.BCELoss()
-    optim_G = torch.optim.Adam(list(G.parameters()) + list(TE.parameters()), lr=0.0002)
-    optim_D = torch.optim.Adam(D.parameters(), lr=0.0002)
+    lr = 0.00005
+    optim_G = torch.optim.Adam(list(G.parameters()) + list(TE.parameters()),lr=lr, betas=(0.5, 0.999))
+    optim_D = torch.optim.Adam(D.parameters(),lr=lr, betas=(0.5, 0.999))
+
 
     for epoch in range(EPOCHS):
         print(f"\n===== Epoch {epoch + 1}/{EPOCHS} =====")
