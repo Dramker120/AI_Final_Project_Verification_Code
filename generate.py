@@ -1,5 +1,5 @@
 # train_cgan.py
-
+#loss很高待調整 
 import os
 import torch
 import torch.nn as nn
@@ -184,6 +184,9 @@ def train():
             img = (gen_img + 1) / 2  # 將 Tanh 輸出轉成 0~1
             from torchvision.utils import save_image
             save_image(img, f"epoch_evolution/epoch_{epoch}.png")
+
+
+#生成大量圖片部分
 
 if __name__ == "__main__":
     train()
