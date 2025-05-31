@@ -17,14 +17,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
-# 定義字符集（與utils.py保持一致）
+# 定義字符集
 CHARS = '-' + string.digits + string.ascii_uppercase + string.ascii_lowercase  # 共 63 個字符
 char2idx = {ch: idx for idx, ch in enumerate(CHARS)}
 idx2char = {idx: ch for ch, idx in char2idx.items()}
 
 os.makedirs("images", exist_ok=True)
 os.makedirs("generated_images", exist_ok=True)
-os.makedirs("models", exist_ok=True)  # 新增：保存模型的目錄
+os.makedirs("models", exist_ok=True)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=100, help="number of epochs of training")
@@ -41,13 +41,17 @@ parser.add_argument("--channels", type=int, default=1, help="number of image cha
 parser.add_argument("--sample_interval", type=int, default=400, help="interval between image sampling")
 parser.add_argument("--generate_dataset", action='store_true', help="generate dataset for training")
 parser.add_argument("--dataset_size", type=int, default=10000, help="size of generated dataset")
-# 新增參數
 parser.add_argument("--generate_only", action='store_true', help="只生成數據集，不進行訓練")
 parser.add_argument("--load_model", type=str, default="", help="載入已訓練的模型路徑")
 parser.add_argument("--save_model", action='store_true', help="保存訓練完成的模型")
 parser.add_argument("--generate_count", type=int, default=20000, help="要生成的驗證碼圖片數量")
 parser.add_argument("--output_dir", type=str, default="generated_images", help="生成圖片的輸出目錄")
-parser.add_argument("--lambda_cls", type=float, default=10.0, help="Weight for classification loss in generator") # 新增：分類損失的權重
+parser.add_argument("--lambda_cls", type=float, default=0.0, help="Weight for G's internal classification loss")
+# New hyperparameter for Generator's loss from Discriminator's classification
+parser.add_argument("--lambda_gen_aux_cls", type=float, default=10.0, help="Weight for G's auxiliary classification loss (from D)")
+# New hyperparameter for Discriminator's own classification loss
+parser.add_argument("--lambda_disc_cls", type=float, default=10.0, help="Weight for D's own classification loss")
+
 
 opt = parser.parse_args()
 print(opt)
@@ -55,8 +59,11 @@ print(opt)
 img_shape = (opt.channels, opt.img_height, opt.img_width)
 cuda = True if torch.cuda.is_available() else False
 
+# Original Embedding Dimensions
+char_embedding_dim = 50
+pos_embedding_dim = 20
+
 class VerificationCodeDataset(Dataset):
-    """生成驗證碼樣本的dataset"""
     def __init__(self, size=10000, code_length=5, img_height=60, img_width=160):
         self.size = size
         self.code_length = code_length
@@ -65,16 +72,12 @@ class VerificationCodeDataset(Dataset):
         self.transform = transforms.Compose([
             transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
-            transforms.Normalize([0.5], [0.5])  # 歸一化到 [-1, 1]
+            transforms.Normalize([0.5], [0.5])
         ])
 
     def generate_code_image(self, code):
-        """生成更清晰的驗證碼圖片"""
-        # 創建白色背景
         img = Image.new('RGB', (self.img_width, self.img_height), 'white')
         draw = ImageDraw.Draw(img)
-
-        # 嘗試使用系統字體，並增大字體
         font_size = 40
         try:
             font = ImageFont.truetype("arial.ttf", font_size)
@@ -88,74 +91,39 @@ class VerificationCodeDataset(Dataset):
                     font = ImageFont.load_default()
 
         char_container_width = self.img_width // self.code_length
-
         for i, char_text in enumerate(code):
-            # 獲取字符實際寬度
-            try:
-                # Pillow 9.2.0+
-                char_w = draw.textlength(char_text, font=font)
-            except AttributeError:
-                # 舊版 Pillow
-                char_w, _ = draw.textsize(char_text, font=font)
-
-            # 在字符容器內居中並添加少量抖動
+            try: char_w = draw.textlength(char_text, font=font)
+            except AttributeError: char_w, _ = draw.textsize(char_text, font=font)
             base_x = i * char_container_width
-            # 確保 x_offset_in_container 不為負，如果 char_w 大於 container_width
             x_offset_in_container = max(0, (char_container_width - char_w) // 2)
+            x = base_x + x_offset_in_container + random.randint(-3, 3)
+            y_base = (self.img_height - font_size) // 2
+            y = y_base + random.randint(-4, 4)
+            y = max(0, min(y, self.img_height - font_size))
+            draw.text((x, y), char_text, fill=(0,0,0), font=font)
 
-            x = base_x + x_offset_in_container + random.randint(-3, 3) # 減小 x 軸隨機抖動
-            # 調整y軸位置，確保字符在圖片內且有一定隨機性
-            # 假設字符大致高度為 font_size
-            y_base = (self.img_height - font_size) // 2 # 基礎居中位置
-            y = y_base + random.randint(-4, 4) # 輕微垂直抖動
-            y = max(0, min(y, self.img_height - font_size)) # 確保不出界
-
-            # 使用純黑色字符以獲得最大對比度
-            char_color = (0, 0, 0)
-
-            # 繪製字符
-            draw.text((x, y), char_text, fill=char_color, font=font)
-
-        # 添加少量且顏色較淺的噪聲線條
-        for _ in range(random.randint(0, 1)): # 0到1條線
+        for _ in range(random.randint(0, 1)):
             start = (random.randint(0, self.img_width), random.randint(0, self.img_height))
             end = (random.randint(0, self.img_width), random.randint(0, self.img_height))
-            draw.line([start, end],
-                      fill=(random.randint(190, 225), random.randint(190, 225), random.randint(190, 225)), # 更淺的線條
-                      width=random.randint(1,2))
-
-        # 添加顏色較淺的噪點
-        for _ in range(random.randint(40, 80)): # 噪點數量可以根據效果調整
-            x_p = random.randint(0, self.img_width - 1)
-            y_p = random.randint(0, self.img_height - 1)
-            draw.point((x_p, y_p),
-                       fill=(random.randint(170, 210), random.randint(170, 210), random.randint(170, 210))) # 更淺的噪點
-
+            draw.line([start, end], fill=(random.randint(190, 225), random.randint(190, 225), random.randint(190, 225)), width=random.randint(1,2))
+        for _ in range(random.randint(40, 80)):
+            draw.point((random.randint(0, self.img_width - 1), random.randint(0, self.img_height - 1)),
+                       fill=(random.randint(170, 210), random.randint(170, 210), random.randint(170, 210)))
         return img
 
     def __len__(self):
         return self.size
 
     def __getitem__(self, idx):
-        # 生成隨機驗證碼
-        code = ''.join(random.choices(CHARS[1:], k=self.code_length))  # 排除blank字符'-'
-
-        # 生成圖片
+        code = ''.join(random.choices(CHARS[1:], k=self.code_length))
         img = self.generate_code_image(code)
-
-        if self.transform:
-            img = self.transform(img)
-
-        # 將驗證碼轉換為索引序列
+        if self.transform: img = self.transform(img)
         code_indices = [char2idx[c] for c in code]
-
         return img, torch.tensor(code_indices, dtype=torch.long)
 
 def weights_init(m):
-    """初始化權重"""
     classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    if classname.find('Conv') != -1: nn.init.normal_(m.weight.data, 0.0, 0.02)
     elif classname.find('BatchNorm') != -1:
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
@@ -163,405 +131,255 @@ def weights_init(m):
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
+        self.char_emb = nn.Embedding(len(CHARS), char_embedding_dim)
+        self.pos_emb = nn.Embedding(opt.code_length, pos_embedding_dim)
+        condition_dim = opt.code_length * (char_embedding_dim + pos_embedding_dim)
 
-        # 字符嵌入層
-        self.char_emb = nn.Embedding(len(CHARS), 50)
-        self.pos_emb = nn.Embedding(opt.code_length, 20)
-
-        # 條件向量維度
-        condition_dim = opt.code_length * (50 + 20)  # 5 * 70 = 350
-
-        # 將潛在向量和條件向量映射到特徵圖
         self.fc = nn.Sequential(
-            nn.Linear(opt.latent_dim + condition_dim, 1024),
-            nn.BatchNorm1d(1024),
-            nn.ReLU(True),
-            nn.Linear(1024, 128 * 15 * 40),  # 對應到 (128, 15, 40)
-            nn.BatchNorm1d(128 * 15 * 40),
-            nn.ReLU(True)
-        )
-
-        # 轉置卷積層來上採樣 - 前半部分，輸出 (32, 60, 160)
+            nn.Linear(opt.latent_dim + condition_dim, 1024), nn.BatchNorm1d(1024), nn.ReLU(True),
+            nn.Linear(1024, 128 * 15 * 40), nn.BatchNorm1d(128 * 15 * 40), nn.ReLU(True))
         self.deconv_features = nn.Sequential(
-            # 輸入: (128, 15, 40)
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # -> (64, 30, 80)
-            nn.BatchNorm2d(64),
-            nn.ReLU(True),
-
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),   # -> (32, 60, 160)
-            nn.BatchNorm2d(32),
-            nn.ReLU(True)
-        )
-
-        # 轉置卷積層來上採樣 - 最後一層，輸出 (1, 60, 160)
-        self.deconv_output = nn.Sequential(
-            nn.ConvTranspose2d(32, 1, kernel_size=3, stride=1, padding=1),    # -> (1, 60, 160)
-            nn.Tanh()
-        )
-
-        # 新增：分類頭 (Classification Head)
-        # 輸入是 self.deconv_features 的輸出，即 (32, 60, 160)
-        self.classifier = nn.Sequential(
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), # -> (64, 30, 80)
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), # -> (64, 15, 40)
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), # -> (128, 8, 20)
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), # -> (128, 4, 10)
-            nn.Flatten(),
-            nn.Linear(128 * 4 * 10, opt.code_length * len(CHARS)) # 輸出為 (code_length * num_chars)
-        )
+            nn.ConvTranspose2d(128, 64, 4, 2, 1), nn.BatchNorm2d(64), nn.ReLU(True),
+            nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.BatchNorm2d(32), nn.ReLU(True))
+        self.deconv_output = nn.Sequential(nn.ConvTranspose2d(32, 1, 3, 1, 1), nn.Tanh())
+        self.classifier = nn.Sequential( # G's internal classifier
+            nn.Conv2d(32, 64, 3, 2, 1), nn.LeakyReLU(0.2, True), nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 128, 3, 2, 1), nn.LeakyReLU(0.2, True), nn.MaxPool2d(2, 2),
+            nn.Flatten(), nn.Linear(128 * 4 * 10, opt.code_length * len(CHARS)))
 
     def forward(self, noise, code_indices):
         batch_size = noise.size(0)
-
-        # 字符嵌入
-        char_embeds = self.char_emb(code_indices)  # (batch, code_length, 50)
-
-        # 位置嵌入
-        positions = torch.arange(opt.code_length).expand(batch_size, -1)
-        if cuda:
-            positions = positions.cuda()
-        pos_embeds = self.pos_emb(positions)  # (batch, code_length, 20)
-
-        # 合併嵌入
-        condition = torch.cat([char_embeds, pos_embeds], dim=-1)  # (batch, code_length, 70)
-        condition = condition.view(batch_size, -1)  # (batch, 350)
-
-        # 合併噪聲和條件
-        gen_input = torch.cat((noise, condition), -1)  # (batch, 100 + 350)
-
-        # 通過全連接層
-        x = self.fc(gen_input)
-        x = x.view(batch_size, 128, 15, 40)  # 重塑為特徵圖
-
-        # 獲取中間特徵圖，用於分類和圖像生成
-        x_features = self.deconv_features(x) # 輸出 (32, 60, 160)
-
-        # 圖像生成
+        char_embeds = self.char_emb(code_indices)
+        positions = torch.arange(opt.code_length, device=noise.device).expand(batch_size, -1)
+        pos_embeds = self.pos_emb(positions)
+        condition = torch.cat([char_embeds, pos_embeds], dim=-1).view(batch_size, -1)
+        gen_input = torch.cat((noise, condition), -1)
+        x = self.fc(gen_input).view(batch_size, 128, 15, 40)
+        x_features = self.deconv_features(x)
         img = self.deconv_output(x_features)
-
-        # 字符預測
-        cls_logits = self.classifier(x_features)
-        # 重塑為 (batch_size, code_length, len(CHARS))
-        cls_logits = cls_logits.view(batch_size, opt.code_length, len(CHARS))
-
-        return img, cls_logits
+        internal_cls_logits = self.classifier(x_features).view(batch_size, opt.code_length, len(CHARS))
+        return img, internal_cls_logits
 
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
+        self.char_embedding = nn.Embedding(len(CHARS), char_embedding_dim)
+        self.pos_embedding = nn.Embedding(opt.code_length, pos_embedding_dim)
+        self.conv_features = nn.Sequential( # Shared convolutional base
+            nn.Conv2d(1, 32, 4, 2, 1), nn.LeakyReLU(0.2, True),
+            nn.Conv2d(32, 64, 4, 2, 1), nn.BatchNorm2d(64), nn.LeakyReLU(0.2, True),
+            nn.Conv2d(64, 128, 4, 2, 1), nn.BatchNorm2d(128), nn.LeakyReLU(0.2, True),
+            nn.Conv2d(128, 256, 4, 2, 1), nn.BatchNorm2d(256), nn.LeakyReLU(0.2, True))
 
-        self.char_embedding = nn.Embedding(len(CHARS), 50)
-        self.pos_embedding = nn.Embedding(opt.code_length, 20)
+        conv_output_dim = 256 * 3 * 10 # After conv_features, H= (60/16 -1)*s+k ? No, it's 160/16=10, 60/16 approx 3
+                                       # (H_in - F + 2P)/S + 1.  H_out = H_in / (2^4) = 160/16=10, 60/16=3.75 -> 3
+                                       # So (256, 3, 10) is correct.
 
-        # 圖像特徵提取
-        self.conv = nn.Sequential(
-            # 輸入: (1, 60, 160)
-            nn.Conv2d(1, 32, kernel_size=4, stride=2, padding=1),  # -> (32, 30, 80)
-            nn.LeakyReLU(0.2, inplace=True),
+        # Adversarial head
+        condition_dim_adv = opt.code_length * (char_embedding_dim + pos_embedding_dim)
+        self.adv_head = nn.Sequential(
+            nn.Linear(conv_output_dim + condition_dim_adv, 1024), nn.LeakyReLU(0.2, True), nn.Dropout(0.3),
+            nn.Linear(1024, 512), nn.LeakyReLU(0.2, True), nn.Dropout(0.3),
+            nn.Linear(512, 1), nn.Sigmoid())
 
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1), # -> (64, 15, 40)
-            nn.BatchNorm2d(64),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1), # -> (128, 7, 20)
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1), # -> (256, 3, 10)
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, inplace=True),
+        # Classification head (operates on image features only)
+        self.cls_head = nn.Sequential(
+            # Input is conv_output_dim (256*3*10 = 7680)
+            # Adding a bit more capacity to the classification head
+            nn.Linear(conv_output_dim, 1024), nn.ReLU(True), nn.Dropout(0.3),
+            nn.Linear(1024, 512), nn.ReLU(True), nn.Dropout(0.3),
+            nn.Linear(512, opt.code_length * len(CHARS))
         )
 
-        condition_dim = opt.code_length * (50 + 20)  # 350
-        conv_output_dim = 256 * 3 * 10  # 7680
+    def forward(self, img, code_indices_for_adv): # code_indices are for the adversarial head
+        img_conv_out = self.conv_features(img)
+        img_features_flat = img_conv_out.view(img_conv_out.size(0), -1)
 
-        self.fc = nn.Sequential(
-            nn.Linear(conv_output_dim + condition_dim, 1024),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(1024, 512),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(512, 1),
-            nn.Sigmoid()
-        )
+        # Adversarial path
+        char_embeds_adv = self.char_embedding(code_indices_for_adv)
+        positions_adv = torch.arange(opt.code_length, device=img.device).expand(img.size(0), -1)
+        pos_embeds_adv = self.pos_embedding(positions_adv)
+        condition_vec_adv = torch.cat([char_embeds_adv, pos_embeds_adv], dim=-1).view(img.size(0), -1)
+        adv_input = torch.cat((img_features_flat, condition_vec_adv), -1)
+        validity = self.adv_head(adv_input)
 
-    def forward(self, img, code_indices):
-        batch_size = img.size(0)
+        # Classification path (on image features only)
+        aux_cls_logits_flat = self.cls_head(img_features_flat) # Pass only image features
+        aux_cls_logits = aux_cls_logits_flat.view(img.size(0), opt.code_length, len(CHARS))
 
-        # 圖像特徵提取
-        img_features = self.conv(img)
-        img_features = img_features.view(batch_size, -1)
+        return validity, aux_cls_logits
 
-        # 字符和位置嵌入
-        char_embeds = self.char_embedding(code_indices)
-        positions = torch.arange(opt.code_length).expand(batch_size, -1)
-        if cuda:
-            positions = positions.cuda()
-        pos_embeds = self.pos_embedding(positions)
+adversarial_loss_fn = torch.nn.BCELoss()
+classification_loss_fn = torch.nn.CrossEntropyLoss()
 
-        condition = torch.cat([char_embeds, pos_embeds], dim=-1)
-        condition = condition.view(batch_size, -1)
-
-        # 合併圖片特徵和條件
-        combined = torch.cat((img_features, condition), -1)
-        validity = self.fc(combined)
-
-        return validity
-
-# Loss function
-adversarial_loss = torch.nn.BCELoss()
-# 新增：分類損失
-classification_loss = torch.nn.CrossEntropyLoss()
-
-# Initialize generator and discriminator
 generator = Generator()
 discriminator = Discriminator()
-
-# 應用權重初始化
-generator.apply(weights_init)
-discriminator.apply(weights_init)
+generator.apply(weights_init); discriminator.apply(weights_init)
 
 if cuda:
-    generator.cuda()
-    discriminator.cuda()
-    adversarial_loss.cuda()
-    classification_loss.cuda()
+    generator.cuda(); discriminator.cuda()
+    adversarial_loss_fn.cuda(); classification_loss_fn.cuda()
 
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 
-def load_model(generator, discriminator, model_path):
-    """載入已訓練的模型"""
+def load_model_func(generator_instance, discriminator_instance, model_path):
     if os.path.exists(model_path):
         print(f"Loading model from {model_path}")
-        checkpoint = torch.load(model_path, map_location='cpu' if not cuda else 'cuda')
-        generator.load_state_dict(checkpoint['generator'])
-        discriminator.load_state_dict(checkpoint['discriminator'])
+        loc = 'cuda' if cuda else 'cpu'
+        checkpoint = torch.load(model_path, map_location=loc)
+        generator_instance.load_state_dict(checkpoint['generator'])
+        discriminator_instance.load_state_dict(checkpoint['discriminator'])
         print("Model loaded successfully!")
         return True
-    else:
-        print(f"Model file {model_path} not found!")
-        return False
+    print(f"Model file {model_path} not found!"); return False
 
-def save_model(generator, discriminator, epoch, model_path):
-    """保存模型"""
+def save_model_func(generator_instance, discriminator_instance, epoch_num, model_path):
     torch.save({
-        'epoch': epoch,
-        'generator': generator.state_dict(),
-        'discriminator': discriminator.state_dict(),
-    }, model_path)
-    print(f"Model saved to {model_path}")
+        'epoch': epoch_num,
+        'generator': generator_instance.state_dict(),
+        'discriminator': discriminator_instance.state_dict(),
+    }, model_path); print(f"Model saved to {model_path}")
 
-def generate_random_codes(batch_size, code_length):
-    """生成隨機驗證碼索引"""
-    codes = []
-    for _ in range(batch_size):
-        # CHARS[0] is '-', CHARS[1:] are actual characters
-        code = [random.randint(1, len(CHARS)-1) for _ in range(code_length)]
-        codes.append(code)
+def generate_random_codes_tensor(batch_size, code_len):
+    codes = [[random.randint(1, len(CHARS)-1) for _ in range(code_len)] for _ in range(batch_size)]
     return torch.tensor(codes, dtype=torch.long)
 
-def sample_image(n_row, epoch):
-    """保存生成的驗證碼圖片網格"""
+def sample_image_func(n_row, epoch_num):
     generator.eval()
     with torch.no_grad():
-        # 生成噪聲
-        z = Variable(FloatTensor(np.random.normal(0, 1, (n_row * n_row, opt.latent_dim))))
+        z = FloatTensor(np.random.normal(0, 1, (n_row**2, opt.latent_dim)))
+        gen_codes_idx = generate_random_codes_tensor(n_row**2, opt.code_length).type(LongTensor)
+        gen_imgs, _ = generator(z, gen_codes_idx) # G internal logits ignored here
+        save_image(gen_imgs.data, f"images/epoch_{epoch_num}.png", nrow=n_row, normalize=True)
+        if epoch_num % 10 == 0:
+            for i in range(min(8, n_row**2)):
+                code_str = ''.join([idx2char[idx.item()] for idx in gen_codes_idx[i]])
+                save_image(gen_imgs[i].data, f"images/sample_{epoch_num}_{code_str}.png", normalize=True)
+    generator.train()
 
-        # 生成隨機驗證碼
-        codes_indices_tensor = generate_random_codes(n_row * n_row, opt.code_length)
-        if cuda:
-            codes_indices_tensor = codes_indices_tensor.cuda()
-
-        gen_imgs, _ = generator(z, codes_indices_tensor) # generator 現在返回圖片和 logits
-        save_image(gen_imgs.data, f"images/epoch_{epoch}.png", nrow=n_row, normalize=True)
-
-        # 也保存一些帶標籤的樣本
-        if epoch % 10 == 0: # 每10個epoch保存帶標籤樣本
-            for i in range(min(8, n_row * n_row)): # 保存最多8張
-                code_str = ''.join([idx2char[idx.item()] for idx in codes_indices_tensor[i]])
-                save_image(gen_imgs[i].data, f"images/sample_{epoch}_{code_str}.png", normalize=True)
-
-    generator.train() # 設置回訓練模式
-
-def generate_verification_codes(generator, count, output_dir, batch_size=64):
-    """生成大量單一驗證碼圖片"""
-    print(f"Generating {count} verification code images...")
-    
-    # 確保輸出目錄存在
-    os.makedirs(output_dir, exist_ok=True)
-    
-    generator.eval() # 確保生成器在評估模式
-    generated_count = 0
-    
-    with torch.no_grad(): # 不需要計算梯度
+def generate_verification_codes_func(gen, count, out_dir, batch_sz):
+    print(f"Generating {count} images..."); os.makedirs(out_dir, exist_ok=True)
+    gen.eval(); generated_count = 0
+    with torch.no_grad():
         while generated_count < count:
-            current_batch_size = min(batch_size, count - generated_count)
-            
-            # 生成噪聲和驗證碼
-            z = FloatTensor(np.random.normal(0, 1, (current_batch_size, opt.latent_dim)))
-            codes_indices_tensor = generate_random_codes(current_batch_size, opt.code_length)
-            if cuda:
-                codes_indices_tensor = codes_indices_tensor.cuda()
-                z = z.cuda()
-            
-            # 生成圖片和分類預測
-            gen_imgs, _ = generator(z, codes_indices_tensor) # 這裡只需要圖片，分類預測用不到
-            
-            # 保存圖片
-            for i in range(current_batch_size):
-                img_tensor = gen_imgs[i].cpu() # 轉到CPU
-                code_str = ''.join([idx2char[idx.item()] for idx in codes_indices_tensor[i]])
-                
-                # 正確的反歸一化：從 [-1, 1] 轉回 [0, 1]
-                img_normalized = (img_tensor + 1) / 2.0
-                img_normalized = torch.clamp(img_normalized, 0, 1) # 確保值在 [0,1]
-                
-                # 轉換為PIL圖片並保存
-                img_pil = transforms.ToPILImage()(img_normalized)
-                
-                # 檔名格式：驗證碼_序號.jpg
-                filename = f"{code_str}.jpg"
-                img_pil.save(os.path.join(output_dir, filename))
-                
-                generated_count += 1
-                if generated_count % 1000 == 0:
-                    print(f"Generated {generated_count}/{count} images")
-    
-    print(f"生成完成！總共生成了 {generated_count} 張驗證碼圖片")
-    print(f"圖片保存在: {output_dir}")
-    generator.train() # 設置回訓練模式
+            curr_batch_sz = min(batch_sz, count - generated_count)
+            z_noise = FloatTensor(np.random.normal(0, 1, (curr_batch_sz, opt.latent_dim)))
+            codes_idx = generate_random_codes_tensor(curr_batch_sz, opt.code_length).type(LongTensor)
+            # gen_imgs, _ = gen(z_noise.cuda() if cuda else z_noise, codes_idx.cuda() if cuda else codes_idx)
+            z_noise = z_noise.cuda() if cuda else z_noise
+            codes_idx = codes_idx.cuda() if cuda else codes_idx
+            gen_imgs, _ = gen(z_noise, codes_idx)
 
-# 主程式邏輯
+
+            for i in range(curr_batch_sz):
+                img_tensor = (gen_imgs[i].cpu().data + 1) / 2.0 # Denormalize from [-1,1] to [0,1]
+                img_tensor.clamp_(0,1)
+                code_s = ''.join([idx2char[idx.item()] for idx in codes_idx[i]])
+                # Add unique identifier to filename to prevent overwrites if codes repeat
+                # and batch generation leads to multiple files for the same code in one go.
+                fname = f"{code_s}.jpg"
+                transforms.ToPILImage()(img_tensor).save(os.path.join(out_dir, fname))
+            generated_count += curr_batch_sz
+            if generated_count % 1000 == 0 or generated_count == count : print(f"Generated {generated_count}/{count} images")
+    print(f"Generation complete! {generated_count} images saved to {out_dir}"); gen.train()
+
 def main():
-    # 如果只要載入模型並生成數據集
     if opt.generate_only:
         if opt.load_model:
-            if load_model(generator, discriminator, opt.load_model):
-                generate_verification_codes(generator, opt.generate_count, opt.output_dir)
-            else:
-                print("無法載入模型，程式結束")
-        else:
-            print("請使用 --load_model 指定要載入的模型路徑")
+            if load_model_func(generator, discriminator, opt.load_model):
+                generate_verification_codes_func(generator, opt.generate_count, opt.output_dir, opt.batch_size)
+            else: print("Cannot load model, exiting.")
+        else: print("Please use --load_model to specify a model path for generation.")
         return
-    
-    # 如果指定載入模型，先載入
-    if opt.load_model:
-        load_model(generator, discriminator, opt.load_model)
-    
-    # 配置數據載入器（只有在訓練時才需要）
-    dataset = VerificationCodeDataset(size=opt.dataset_size, code_length=opt.code_length,
-                                    img_height=opt.img_height, img_width=opt.img_width)
-    dataloader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True, num_workers=opt.n_cpu)
-    
-    # Optimizers
+
+    if opt.load_model: load_model_func(generator, discriminator, opt.load_model)
+
+    dataset = VerificationCodeDataset(opt.dataset_size, opt.code_length, opt.img_height, opt.img_width)
+    dataloader = DataLoader(dataset, opt.batch_size, shuffle=True, num_workers=opt.n_cpu, drop_last=True)
+
     optimizer_G = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
     optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
-    
-    # 學習率調度器
     scheduler_G = torch.optim.lr_scheduler.StepLR(optimizer_G, step_size=30, gamma=0.5)
     scheduler_D = torch.optim.lr_scheduler.StepLR(optimizer_D, step_size=30, gamma=0.5)
-    
-    # ----------
-    #  Training
-    # ----------
-    
-    print("Starting training...")
+
+    print("Starting cGAN training...")
     for epoch in range(opt.n_epochs):
-        for i, (imgs, real_code_indices) in enumerate(dataloader):
-            batch_size = imgs.shape[0]
-            
-            # Adversarial ground truths
-            valid = FloatTensor(batch_size, 1).fill_(1.0)
-            fake = FloatTensor(batch_size, 1).fill_(0.0)
-            
-            # Configure input
-            real_imgs = imgs.type(FloatTensor)
-            if cuda:
-                real_code_indices = real_code_indices.cuda()
-            
-            # -----------------
-            #  Train Generator
-            # -----------------
+        for i, (real_imgs, real_code_indices) in enumerate(dataloader):
+            batch_size_actual = real_imgs.shape[0]
+            valid_labels = FloatTensor(batch_size_actual, 1).fill_(1.0)
+            fake_labels = FloatTensor(batch_size_actual, 1).fill_(0.0)
+            real_imgs = real_imgs.type(FloatTensor)
+            real_code_indices = real_code_indices.type(LongTensor)
+
+            # --- Train Generator ---
             optimizer_G.zero_grad()
+            z_noise = FloatTensor(np.random.normal(0, 1, (batch_size_actual, opt.latent_dim)))
+            # Target codes for G to generate
+            gen_target_code_indices = generate_random_codes_tensor(batch_size_actual, opt.code_length).type(LongTensor)
+
+            gen_imgs, g_internal_cls_logits = generator(z_noise, gen_target_code_indices)
             
-            # Sample noise and generate random codes
-            z = FloatTensor(np.random.normal(0, 1, (batch_size, opt.latent_dim)))
-            gen_code_indices = generate_random_codes(batch_size, opt.code_length)
-            if cuda:
-                gen_code_indices = gen_code_indices.cuda()
-                z = z.cuda()
-            
-            # Generate a batch of images and get classification logits
-            gen_imgs, cls_logits = generator(z, gen_code_indices) # 生成器現在返回兩個值
-            
-            # Loss measures generator's ability to fool the discriminator
-            validity = discriminator(gen_imgs, gen_code_indices)
-            g_adv_loss = adversarial_loss(validity, valid)
-            
-            # 新增：分類損失
-            # cls_logits 的形狀是 (batch_size, code_length, len(CHARS))
-            # gen_code_indices 的形狀是 (batch_size, code_length)
-            # 需要將 gen_code_indices 展開以匹配 cls_logits 的預期
-            g_cls_loss = classification_loss(cls_logits.view(-1, len(CHARS)), gen_code_indices.view(-1))
-            
-            # 生成器總損失 = 對抗損失 + 分類損失
-            g_loss = g_adv_loss + opt.lambda_cls * g_cls_loss
-            
+            # Pass generated images through D
+            # For G's loss, D needs to process gen_imgs with gen_target_code_indices as the adv condition
+            d_adv_pred_on_fake, d_aux_cls_pred_on_fake = discriminator(gen_imgs, gen_target_code_indices)
+
+            g_loss_adv = adversarial_loss_fn(d_adv_pred_on_fake, valid_labels) # G wants D to think fake is valid
+            g_loss_internal_cls = classification_loss_fn(
+                g_internal_cls_logits.reshape(-1, len(CHARS)),
+                gen_target_code_indices.reshape(-1)
+            )
+            g_loss_external_cls = classification_loss_fn( # G wants D to classify fake images correctly
+                d_aux_cls_pred_on_fake.reshape(-1, len(CHARS)),
+                gen_target_code_indices.reshape(-1)
+            )
+            g_loss = g_loss_adv + \
+                     opt.lambda_cls * g_loss_internal_cls + \
+                     opt.lambda_gen_aux_cls * g_loss_external_cls
             g_loss.backward()
             optimizer_G.step()
-            
-            # ---------------------
-            #  Train Discriminator
-            # ---------------------
+
+            # --- Train Discriminator ---
             optimizer_D.zero_grad()
             
-            # Loss for real images
-            validity_real = discriminator(real_imgs, real_code_indices)
-            d_real_loss = adversarial_loss(validity_real, valid)
+            # D's loss on real images
+            d_adv_pred_real, d_aux_cls_pred_real = discriminator(real_imgs, real_code_indices)
+            d_loss_real_adv = adversarial_loss_fn(d_adv_pred_real, valid_labels)
+            d_loss_real_cls = classification_loss_fn(
+                d_aux_cls_pred_real.reshape(-1, len(CHARS)),
+                real_code_indices.reshape(-1)
+            )
+
+            # D's loss on fake images
+            # For D's loss, D needs to process gen_imgs.detach() with gen_target_code_indices as the adv condition
+            d_adv_pred_fake, d_aux_cls_pred_fake = discriminator(gen_imgs.detach(), gen_target_code_indices)
+            d_loss_fake_adv = adversarial_loss_fn(d_adv_pred_fake, fake_labels)
+            d_loss_fake_cls = classification_loss_fn( # D learns to classify even the fake ones (based on G's attempt)
+                d_aux_cls_pred_fake.reshape(-1, len(CHARS)),
+                gen_target_code_indices.reshape(-1)
+            )
             
-            # Loss for fake images
-            validity_fake = discriminator(gen_imgs.detach(), gen_code_indices)
-            d_fake_loss = adversarial_loss(validity_fake, fake)
+            d_loss_adv_total = (d_loss_real_adv + d_loss_fake_adv) / 2
+            d_loss_cls_total = d_loss_real_cls + d_loss_fake_cls # Sum of cls losses for D
             
-            # Total discriminator loss
-            d_loss = (d_real_loss + d_fake_loss) / 2
-            
+            d_loss = d_loss_adv_total + opt.lambda_disc_cls * d_loss_cls_total
             d_loss.backward()
             optimizer_D.step()
-            
-            if i % 50 == 0: # 每50個batch打印一次日誌
-                print(
-                    "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f (adv: %f, cls: %f)]"
-                    % (epoch, opt.n_epochs, i, len(dataloader), d_loss.item(), g_loss.item(), g_adv_loss.item(), g_cls_loss.item())
-                )
-        
-        # 更新學習率
-        scheduler_G.step()
-        scheduler_D.step()
-        
-        # 每個epoch保存樣本圖片
-        if epoch % 2 == 0 or epoch == opt.n_epochs - 1:
-            sample_image(n_row=8, epoch=epoch)
-        
-        # 每10個epoch保存一次模型
-        if opt.save_model and (epoch % 10 == 0 or epoch == opt.n_epochs - 1):
-            model_path = f"models/cgan_epoch_{epoch}.pth"
-            save_model(generator, discriminator, epoch, model_path)
-    
+
+            if i % 50 == 0:
+                print(f"[Epoch {epoch}/{opt.n_epochs}] [Batch {i}/{len(dataloader)}] "
+                      f"[D adv: {d_loss_adv_total.item():.4f}, D cls: {d_loss_cls_total.item():.4f}] "
+                      f"[G adv: {g_loss_adv.item():.4f}, G int_cls: {g_loss_internal_cls.item():.4f}, G ext_cls: {g_loss_external_cls.item():.4f}] "
+                      f"[LR: {optimizer_G.param_groups[0]['lr']:.1e}]")
+
+        scheduler_G.step(); scheduler_D.step()
+        if epoch % 2 == 0 or epoch == opt.n_epochs - 1: sample_image_func(8, epoch)
+        if opt.save_model and (epoch > 0 and epoch % 10 == 0 or epoch == opt.n_epochs - 1):
+            save_model_func(generator, discriminator, epoch, f"models/cgan_epoch_{epoch}.pth")
+
     print("Training completed!")
-    
-    # 訓練完成後保存最終模型
-    if opt.save_model:
-        final_model_path = "models/cgan_final.pth"
-        save_model(generator, discriminator, opt.n_epochs, final_model_path)
-    
-    # 訓練完成後根據命令行參數決定是否生成數據集
-    if opt.generate_dataset:
-        generate_verification_codes(generator, opt.generate_count, opt.output_dir)
+    if opt.save_model: save_model_func(generator, discriminator, opt.n_epochs, "models/cgan_final.pth")
+    if opt.generate_dataset: generate_verification_codes_func(generator, opt.generate_count, opt.output_dir, opt.batch_size)
 
 if __name__ == "__main__":
     main()
