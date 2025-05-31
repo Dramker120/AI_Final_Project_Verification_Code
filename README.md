@@ -52,10 +52,10 @@ python Recognize.py
 
 ##  Generating CAPTCHA images 
 ### Note
-Now we should focus on improving image quality!!!
+The captcha in the filename now matches the actual image captcha, but it can be further improved.
 ### 1. Train cGAN model
 ```bash
-python cGAN.py --n_epochs 100 --save_model --lambda_cls 10.0
+python cGAN.py --n_epochs 200 --save_model
 ```
 ### 2. Generate datasets for recognizing
 ```bash
