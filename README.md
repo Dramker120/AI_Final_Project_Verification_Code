@@ -50,9 +50,9 @@ python Recognize.py
 ## Results: Test accuracy is about 84%
 ![Test result](Recognition_result.png)
 
-##  Generating CAPTCHA images (Buggy)
+##  Generating CAPTCHA images 
 ### Note
-The captcha in the filename does not match the actual image captcha, which needs to be resolved.
+Now we should focus on improving image quality!!!
 ### 1. Train cGAN model
 ```bash
 python cGAN.py --n_epochs 100 --save_model --lambda_cls 10.0
