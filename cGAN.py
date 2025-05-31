@@ -45,12 +45,11 @@ parser.add_argument("--dataset_size", type=int, default=10000, help="size of gen
 parser.add_argument("--generate_only", action='store_true', help="只生成數據集，不進行訓練")
 parser.add_argument("--load_model", type=str, default="", help="載入已訓練的模型路徑")
 parser.add_argument("--save_model", action='store_true', help="保存訓練完成的模型")
-parser.add_argument("--generate_count", type=int, default=20000, help="要生成的驗證碼圖片數量")
+parser.add_argument("--generate_count", type=int, default=1000, help="要生成的驗證碼圖片數量") # faster 當處理完bug可以改大一點
 parser.add_argument("--output_dir", type=str, default="generated_images", help="生成圖片的輸出目錄")
 parser.add_argument("--lambda_cls", type=float, default=10.0, help="Weight for classification loss in generator") # 新增：分類損失的權重
 
 opt = parser.parse_args()
-print(opt)
 
 img_shape = (opt.channels, opt.img_height, opt.img_width)
 cuda = True if torch.cuda.is_available() else False
@@ -277,16 +276,21 @@ class Discriminator(nn.Module):
         condition_dim = opt.code_length * (50 + 20)  # 350
         conv_output_dim = 256 * 3 * 10  # 7680
 
-        self.fc = nn.Sequential(
+        self.shared = nn.Sequential(
             nn.Linear(conv_output_dim + condition_dim, 1024),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Dropout(0.3),
             nn.Linear(1024, 512),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Dropout(0.3),
+        )
+
+        self.adv_layer = nn.Sequential(
             nn.Linear(512, 1),
             nn.Sigmoid()
         )
+
+        self.cls_layer = nn.Linear(512, opt.code_length * len(CHARS))  # 無 activation，交給 loss 算
 
     def forward(self, img, code_indices):
         batch_size = img.size(0)
@@ -307,9 +311,15 @@ class Discriminator(nn.Module):
 
         # 合併圖片特徵和條件
         combined = torch.cat((img_features, condition), -1)
-        validity = self.fc(combined)
+        features = self.shared(combined)
+        # 預測真假
+        validity = self.adv_layer(features)
 
-        return validity
+        # 預測 label
+        cls_logits = self.cls_layer(features)
+        cls_logits = cls_logits.view(batch_size, opt.code_length, len(CHARS))  # 每個字元位置預測 CHARS 分類
+
+        return validity, cls_logits
 
 # Loss function
 adversarial_loss = torch.nn.BCELoss()
@@ -364,27 +374,49 @@ def generate_random_codes(batch_size, code_length):
         codes.append(code)
     return torch.tensor(codes, dtype=torch.long)
 
+FIXED_CODES = ['ABC12', '3EFGH', 'IJ456', 'KL789', 'MN012', 'PQ345', 'RS678', 'TU901']  # 共 8 個 sample
+FIXED_Z = torch.randn(len(FIXED_CODES), opt.latent_dim)  # 固定噪聲
+
 def sample_image(n_row, epoch):
     """保存生成的驗證碼圖片網格"""
     generator.eval()
     with torch.no_grad():
+        """
         # 生成噪聲
-        z = Variable(FloatTensor(np.random.normal(0, 1, (n_row * n_row, opt.latent_dim))))
-
+         z = Variable(FloatTensor(np.random.normal(0, 1, (n_row * n_row, opt.latent_dim))))
+        
         # 生成隨機驗證碼
         codes_indices_tensor = generate_random_codes(n_row * n_row, opt.code_length)
         if cuda:
             codes_indices_tensor = codes_indices_tensor.cuda()
+        """
+        # 使用固定的 latent noise
+        z = FIXED_Z.clone()
+        if cuda:
+            z = z.cuda()
 
-        gen_imgs, _ = generator(z, codes_indices_tensor) # generator 現在返回圖片和 logits
-        save_image(gen_imgs.data, f"images/epoch_{epoch}.png", nrow=n_row, normalize=True)
+        # 把固定驗證碼轉成 index tensor
+        fixed_code_indices = torch.stack([
+            torch.LongTensor([char2idx[c] for c in code])
+            for code in FIXED_CODES
+        ])
+        if cuda:
+            fixed_code_indices = fixed_code_indices.cuda()
 
+        gen_imgs, cls_logits = generator(z, fixed_code_indices) # generator 現在返回圖片和 logits
+        save_image(gen_imgs.data, f"images/epoch_{epoch}.png", nrow=4, normalize=True)
+        pred = cls_logits.argmax(dim=-1)
+        # DEBUG:
+        print("預測文字:", ''.join([idx2char[idx.item()] for idx in pred[0]]))
+        print("目標 label:", ''.join([idx2char[idx.item()] for idx in fixed_code_indices[0]]))
+
+        """
         # 也保存一些帶標籤的樣本
         if epoch % 10 == 0: # 每10個epoch保存帶標籤樣本
             for i in range(min(8, n_row * n_row)): # 保存最多8張
                 code_str = ''.join([idx2char[idx.item()] for idx in codes_indices_tensor[i]])
                 save_image(gen_imgs[i].data, f"images/sample_{epoch}_{code_str}.png", normalize=True)
-
+        """
     generator.train() # 設置回訓練模式
 
 def generate_verification_codes(generator, count, output_dir, batch_size=64):
@@ -438,6 +470,7 @@ def generate_verification_codes(generator, count, output_dir, batch_size=64):
 # 主程式邏輯
 def main():
     # 如果只要載入模型並生成數據集
+    print(opt)
     if opt.generate_only:
         if opt.load_model:
             if load_model(generator, discriminator, opt.load_model):
@@ -490,23 +523,25 @@ def main():
             
             # Sample noise and generate random codes
             z = FloatTensor(np.random.normal(0, 1, (batch_size, opt.latent_dim)))
+            """
             gen_code_indices = generate_random_codes(batch_size, opt.code_length)
             if cuda:
                 gen_code_indices = gen_code_indices.cuda()
                 z = z.cuda()
-            
+            """
             # Generate a batch of images and get classification logits
-            gen_imgs, cls_logits = generator(z, gen_code_indices) # 生成器現在返回兩個值
+            gen_imgs, cls_logits = generator(z, real_code_indices) # 生成器現在返回兩個值
             
-            # Loss measures generator's ability to fool the discriminator
-            validity = discriminator(gen_imgs, gen_code_indices)
+            # Discriminator 的判斷（要騙過 D 判斷為真）
+            validity, cls_pred = discriminator(gen_imgs, real_code_indices)
+            # G 的 adversarial loss：希望 D 判斷這張假圖為真
             g_adv_loss = adversarial_loss(validity, valid)
             
-            # 新增：分類損失
-            # cls_logits 的形狀是 (batch_size, code_length, len(CHARS))
-            # gen_code_indices 的形狀是 (batch_size, code_length)
-            # 需要將 gen_code_indices 展開以匹配 cls_logits 的預期
-            g_cls_loss = classification_loss(cls_logits.view(-1, len(CHARS)), gen_code_indices.view(-1))
+            # G 的 classification loss：希望生成的圖，D 判斷為正確的 label
+            g_cls_loss = classification_loss(
+                cls_pred.view(-1, len(CHARS)),               # (B * code_length, num_classes)
+                real_code_indices.view(-1)                   # (B * code_length)
+            )
             
             # 生成器總損失 = 對抗損失 + 分類損失
             g_loss = g_adv_loss + opt.lambda_cls * g_cls_loss
@@ -514,22 +549,28 @@ def main():
             g_loss.backward()
             optimizer_G.step()
             
-            # ---------------------
+            # --------------------
             #  Train Discriminator
-            # ---------------------
+            # --------------------
             optimizer_D.zero_grad()
-            
-            # Loss for real images
-            validity_real = discriminator(real_imgs, real_code_indices)
+
+            # ---- Real images ----
+            validity_real, cls_real = discriminator(real_imgs, real_code_indices)
             d_real_loss = adversarial_loss(validity_real, valid)
-            
-            # Loss for fake images
-            validity_fake = discriminator(gen_imgs.detach(), gen_code_indices)
+
+            # Classification loss for real images
+            d_cls_loss = classification_loss(
+                cls_real.view(-1, len(CHARS)),              # (B * code_length, num_classes)
+                real_code_indices.view(-1)                  # (B * code_length)
+            )
+
+            # ---- Fake images ----
+            # 用相同 label 條件生成假圖，但不會用來算 classification loss
+            validity_fake, _ = discriminator(gen_imgs.detach(), real_code_indices)
             d_fake_loss = adversarial_loss(validity_fake, fake)
-            
-            # Total discriminator loss
-            d_loss = (d_real_loss + d_fake_loss) / 2
-            
+
+            # ---- Total D loss ----
+            d_loss = d_real_loss + d_fake_loss + d_cls_loss
             d_loss.backward()
             optimizer_D.step()
             
