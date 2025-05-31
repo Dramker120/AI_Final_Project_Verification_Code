@@ -54,7 +54,6 @@ parser.add_argument("--lambda_disc_cls", type=float, default=10.0, help="Weight 
 
 
 opt = parser.parse_args()
-print(opt)
 
 img_shape = (opt.channels, opt.img_height, opt.img_width)
 cuda = True if torch.cuda.is_available() else False
@@ -62,6 +61,37 @@ cuda = True if torch.cuda.is_available() else False
 # Original Embedding Dimensions
 char_embedding_dim = 50
 pos_embedding_dim = 20
+
+class ExternalCaptchaDataset(Dataset):
+    def __init__(self, root_dir='data/train_num2_var/5', img_height=60, img_width=160):
+        self.root_dir = root_dir
+        self.img_height = img_height
+        self.img_width = img_width
+        self.transform = transforms.Compose([
+            transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((img_height, img_width)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5])
+        ])
+        self.samples = []
+
+        # 掃描所有資料夾與圖片
+        for filename in os.listdir(root_dir):
+            if filename.endswith('.jpg'):
+                label = os.path.splitext(filename)[0]
+                img_path = os.path.join(root_dir, filename)
+                self.samples.append((img_path, label))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        img_path, label = self.samples[idx]
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+        code_indices = [char2idx[c] for c in label]
+        return image, torch.tensor(code_indices, dtype=torch.long)
 
 class VerificationCodeDataset(Dataset):
     def __init__(self, size=10000, code_length=5, img_height=60, img_width=160):
@@ -285,6 +315,7 @@ def generate_verification_codes_func(gen, count, out_dir, batch_sz):
     print(f"Generation complete! {generated_count} images saved to {out_dir}"); gen.train()
 
 def main():
+    print(opt)
     if opt.generate_only:
         if opt.load_model:
             if load_model_func(generator, discriminator, opt.load_model):
@@ -295,7 +326,8 @@ def main():
 
     if opt.load_model: load_model_func(generator, discriminator, opt.load_model)
 
-    dataset = VerificationCodeDataset(opt.dataset_size, opt.code_length, opt.img_height, opt.img_width)
+    dataset = ExternalCaptchaDataset(root_dir=f"data/train_num2_var/{opt.code_length}", img_height=opt.img_height, img_width=opt.img_width)
+    # dataset = VerificationCodeDataset(opt.dataset_size, opt.code_length, opt.img_height, opt.img_width) 
     dataloader = DataLoader(dataset, opt.batch_size, shuffle=True, num_workers=opt.n_cpu, drop_last=True)
 
     optimizer_G = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
