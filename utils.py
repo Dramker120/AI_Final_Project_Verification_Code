@@ -79,7 +79,7 @@ def load_train_dataset(path: str='data/train/')->Tuple[List[str], List[List[int]
     images = []
     labels = []
     for file_name in sorted(os.listdir(path)): # "sorted" is to ensure the order of the images
-        if not file_name.endswith('.jpg'):
+        if not (file_name.endswith('.jpg') or file_name.endswith('.png')): # jpg for Kaggle Dataset, png for our own Dataset
             continue
         label_str = os.path.splitext(file_name)[0]  # e.g., 'L7AxT'
         if any(c not in char2idx for c in label_str):
@@ -94,7 +94,7 @@ def load_validate_dataset(path: str='data/val/')->Tuple[List[str], List[str]]:
     images = []
     labels = []
     for file_name in sorted(os.listdir(path)): # "sorted" is to ensure the order of the images
-        if not file_name.endswith('.jpg'):
+        if not (file_name.endswith('.jpg') or file_name.endswith('.png')): # jpg for Kaggle Dataset, png for our own Dataset
             continue
         label_str = os.path.splitext(file_name)[0]  # e.g., 'L7AxT'
         if any(c not in char2idx for c in label_str):
@@ -109,7 +109,7 @@ def load_test_dataset(path: str='data/test/')->List[str]:
     images = []
     labels = []
     for file_name in sorted(os.listdir(path)): # "sorted" is to ensure the order of the images
-        if not file_name.endswith('.jpg'):
+        if not (file_name.endswith('.jpg') or file_name.endswith('.png')): # jpg for Kaggle Dataset, png for our own Dataset
             continue
         label_str = os.path.splitext(file_name)[0]  # e.g., 'L7AxT'
         if any(c not in char2idx for c in label_str):

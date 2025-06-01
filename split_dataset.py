@@ -6,16 +6,17 @@ import shutil
 SEED = 42
 random.seed(SEED)
 
-input_base = 'data/train_num2_var'
-output_base = 'data'
-
+# input_base = 'data/train_num2_var' # for Kaggle Dataset
+# output_base = 'data' # for Kaggle Dataset
+input_base = 'data/dataset2_images' # for our own Dataset
+output_base = 'data/dataset2_images' # for our own Dataset
 for split in ['train', 'val', 'test']:
     #exist_ok : if the folder already exists, do nothing(no error reported).
     os.makedirs(os.path.join(output_base, split), exist_ok=True)
 
 for length in range(4, 8):  # 4~7
     folder_path = os.path.join(input_base, str(length))
-    filenames = [f for f in os.listdir(folder_path) if f.endswith('.jpg')]
+    filenames = [f for f in os.listdir(folder_path) if f.endswith('.jpg') or f.endswith('.png')] # jpg for Kaggle Dataset, png for our own Dataset
     # check
     check_path = os.path.join(output_base, 'train', f'{filenames[0]}')
     if os.path.exists(check_path):

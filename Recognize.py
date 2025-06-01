@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 # from sklearn.utils import shuffle
 from loguru import logger
 # from sklearn.metrics import accuracy_score
+import argparse
 
 from CNNCTC import CNNCTC, train, validate, test
 from utils import TrainDataset, ValidateDataset, TestDataset, load_train_dataset, load_validate_dataset, load_test_dataset, plot, plot2
@@ -29,16 +30,33 @@ def main():
     """
     load data
     """
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=int, choices=[1, 2], default=1,
+                        help='選擇資料集版本:1=data/,2=data/dataset2_images/')
+    args = parser.parse_args()
+
+    # 根據 dataset 參數設定 base path
+    if args.dataset == 1:
+        base_path_train = 'data/train'
+        base_path_val = 'data/val'
+        base_path_test = 'data/test'
+    elif args.dataset == 2:
+        base_path_train = 'data/dataset2_images/train'
+        base_path_val = 'data/dataset2_images/val'
+        base_path_test = 'data/dataset2_images/test'
+    logger.info(f"Training use path: {base_path_train}")
     logger.info("Start loading training data")
-    train_images, train_labels = load_train_dataset()
+    train_images, train_labels = load_train_dataset(base_path_train)
     #train_images = train_images[:8000] # fast test
     #train_labels = train_labels[:8000] # fast test
+    logger.info(f"Training use path: {base_path_val}")
     logger.info("Start loading validate data")
-    val_images, val_labels = load_validate_dataset()
+    val_images, val_labels = load_validate_dataset(base_path_val)
     #val_images = val_images[:1000] # fast test
     #val_labels = val_labels[:1000] # fast test
+    logger.info(f"Training use path: {base_path_test}")
     logger.info("Start loading test data")
-    test_images, test_labels = load_test_dataset()
+    test_images, test_labels = load_test_dataset(base_path_test)
     
     train_dataset = TrainDataset(train_images, train_labels)
     val_dataset = ValidateDataset(val_images, val_labels)
