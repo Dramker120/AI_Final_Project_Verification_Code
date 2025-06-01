@@ -16,6 +16,7 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
+from utils import plot3
 
 # 定義字符集
 CHARS = '-' + string.digits + string.ascii_uppercase + string.ascii_lowercase  # 共 63 個字符
@@ -44,9 +45,9 @@ parser.add_argument("--dataset_size", type=int, default=10000, help="size of gen
 parser.add_argument("--generate_only", action='store_true', help="只生成數據集，不進行訓練")
 parser.add_argument("--load_model", type=str, default="", help="載入已訓練的模型路徑")
 parser.add_argument("--save_model", action='store_true', help="保存訓練完成的模型")
-parser.add_argument("--generate_count", type=int, default=20000, help="要生成的驗證碼圖片數量")
+parser.add_argument("--generate_count", type=int, default=1000, help="要生成的驗證碼圖片數量")
 parser.add_argument("--output_dir", type=str, default="generated_images", help="生成圖片的輸出目錄")
-parser.add_argument("--lambda_cls", type=float, default=0.0, help="Weight for G's internal classification loss")
+parser.add_argument("--lambda_cls", type=float, default=10.0, help="Weight for G's internal classification loss")
 # New hyperparameter for Generator's loss from Discriminator's classification
 parser.add_argument("--lambda_gen_aux_cls", type=float, default=10.0, help="Weight for G's auxiliary classification loss (from D)")
 # New hyperparameter for Discriminator's own classification loss
@@ -158,6 +159,21 @@ def weights_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
+class ResBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(channels)
+        )
+
+    def forward(self, x):
+        return F.relu(x + self.block(x))
+
+
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
@@ -169,12 +185,13 @@ class Generator(nn.Module):
             nn.Linear(opt.latent_dim + condition_dim, 1024), nn.BatchNorm1d(1024), nn.ReLU(True),
             nn.Linear(1024, 128 * 15 * 40), nn.BatchNorm1d(128 * 15 * 40), nn.ReLU(True))
         self.deconv_features = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, 4, 2, 1), nn.BatchNorm2d(64), nn.ReLU(True),
-            nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.BatchNorm2d(32), nn.ReLU(True))
-        self.deconv_output = nn.Sequential(nn.ConvTranspose2d(32, 1, 3, 1, 1), nn.Tanh())
+            nn.ConvTranspose2d(128, 128, 3, 1, 1), nn.BatchNorm2d(128), nn.ReLU(True), ResBlock(128),# (input: [B, 128, 15, 40])-> [B, 128, 15, 40]
+            nn.ConvTranspose2d(128, 64, 4, 2, 1), nn.BatchNorm2d(64), nn.ReLU(True), ResBlock(64),# [B, 64, 30, 80]
+            nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.BatchNorm2d(32), nn.ReLU(True), ResBlock(32)) # [B, 32, 60, 160]
+        self.deconv_output = nn.Sequential(nn.ConvTranspose2d(32, 1, 3, 1, 1), nn.Tanh()) # [B, 1, 60, 160]
         self.classifier = nn.Sequential( # G's internal classifier
-            nn.Conv2d(32, 64, 3, 2, 1), nn.LeakyReLU(0.2, True), nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 128, 3, 2, 1), nn.LeakyReLU(0.2, True), nn.MaxPool2d(2, 2),
+            nn.Conv2d(32, 64, 3, 2, 1), nn.LeakyReLU(0.2, True), nn.MaxPool2d(2, 2), # [B, 64, 15, 40]
+            nn.Conv2d(64, 128, 3, 2, 1), nn.LeakyReLU(0.2, True), nn.MaxPool2d(2, 2), # [B, 32, 4, 10]
             nn.Flatten(), nn.Linear(128 * 4 * 10, opt.code_length * len(CHARS)))
 
     def forward(self, noise, code_indices):
@@ -187,7 +204,7 @@ class Generator(nn.Module):
         x = self.fc(gen_input).view(batch_size, 128, 15, 40)
         x_features = self.deconv_features(x)
         img = self.deconv_output(x_features)
-        internal_cls_logits = self.classifier(x_features).view(batch_size, opt.code_length, len(CHARS))
+        internal_cls_logits = self.classifier(x_features)
         return img, internal_cls_logits
 
 class Discriminator(nn.Module):
@@ -326,8 +343,8 @@ def main():
 
     if opt.load_model: load_model_func(generator, discriminator, opt.load_model)
 
-    dataset = ExternalCaptchaDataset(root_dir=f"data/train_num2_var/{opt.code_length}", img_height=opt.img_height, img_width=opt.img_width)
-    # dataset = VerificationCodeDataset(opt.dataset_size, opt.code_length, opt.img_height, opt.img_width) 
+    # dataset = ExternalCaptchaDataset(root_dir=f"data/train_num2_var/{opt.code_length}", img_height=opt.img_height, img_width=opt.img_width)
+    dataset = VerificationCodeDataset(opt.dataset_size, opt.code_length, opt.img_height, opt.img_width) 
     dataloader = DataLoader(dataset, opt.batch_size, shuffle=True, num_workers=opt.n_cpu, drop_last=True)
 
     optimizer_G = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
@@ -336,6 +353,11 @@ def main():
     scheduler_D = torch.optim.lr_scheduler.StepLR(optimizer_D, step_size=30, gamma=0.5)
 
     print("Starting cGAN training...")
+
+    g_loss_adversarial = []
+    g_loss_external_classes = []
+    g_loss_internal_classes = []
+    g_total_loss = []
     for epoch in range(opt.n_epochs):
         for i, (real_imgs, real_code_indices) in enumerate(dataloader):
             batch_size_actual = real_imgs.shape[0]
@@ -371,45 +393,51 @@ def main():
             g_loss.backward()
             optimizer_G.step()
 
-            # --- Train Discriminator ---
-            optimizer_D.zero_grad()
-            
-            # D's loss on real images
-            d_adv_pred_real, d_aux_cls_pred_real = discriminator(real_imgs, real_code_indices)
-            d_loss_real_adv = adversarial_loss_fn(d_adv_pred_real, valid_labels)
-            d_loss_real_cls = classification_loss_fn(
-                d_aux_cls_pred_real.reshape(-1, len(CHARS)),
-                real_code_indices.reshape(-1)
-            )
+            if i % 5 == 0:
+                # --- Train Discriminator ---
+                optimizer_D.zero_grad()
+                
+                # D's loss on real images
+                d_adv_pred_real, d_aux_cls_pred_real = discriminator(real_imgs, real_code_indices)
+                d_loss_real_adv = adversarial_loss_fn(d_adv_pred_real, valid_labels)
+                d_loss_real_cls = classification_loss_fn(
+                    d_aux_cls_pred_real.reshape(-1, len(CHARS)),
+                    real_code_indices.reshape(-1)
+                )
 
-            # D's loss on fake images
-            # For D's loss, D needs to process gen_imgs.detach() with gen_target_code_indices as the adv condition
-            d_adv_pred_fake, d_aux_cls_pred_fake = discriminator(gen_imgs.detach(), gen_target_code_indices)
-            d_loss_fake_adv = adversarial_loss_fn(d_adv_pred_fake, fake_labels)
-            d_loss_fake_cls = classification_loss_fn( # D learns to classify even the fake ones (based on G's attempt)
-                d_aux_cls_pred_fake.reshape(-1, len(CHARS)),
-                gen_target_code_indices.reshape(-1)
-            )
-            
-            d_loss_adv_total = (d_loss_real_adv + d_loss_fake_adv) / 2
-            d_loss_cls_total = d_loss_real_cls + d_loss_fake_cls # Sum of cls losses for D
-            
-            d_loss = d_loss_adv_total + opt.lambda_disc_cls * d_loss_cls_total
-            d_loss.backward()
-            optimizer_D.step()
+                # D's loss on fake images
+                # For D's loss, D needs to process gen_imgs.detach() with gen_target_code_indices as the adv condition
+                d_adv_pred_fake, d_aux_cls_pred_fake = discriminator(gen_imgs.detach(), gen_target_code_indices)
+                d_loss_fake_adv = adversarial_loss_fn(d_adv_pred_fake, fake_labels)
+                d_loss_fake_cls = classification_loss_fn( # D learns to classify even the fake ones (based on G's attempt)
+                    d_aux_cls_pred_fake.reshape(-1, len(CHARS)),
+                    gen_target_code_indices.reshape(-1)
+                )
+                
+                d_loss_adv_total = (d_loss_real_adv + d_loss_fake_adv) / 2
+                d_loss_cls_total = d_loss_real_cls + d_loss_fake_cls # Sum of cls losses for D
+                
+                d_loss = d_loss_adv_total + opt.lambda_disc_cls * d_loss_cls_total
+                d_loss.backward()
+                optimizer_D.step()
 
             if i % 50 == 0:
                 print(f"[Epoch {epoch}/{opt.n_epochs}] [Batch {i}/{len(dataloader)}] "
                       f"[D adv: {d_loss_adv_total.item():.4f}, D cls: {d_loss_cls_total.item():.4f}] "
                       f"[G adv: {g_loss_adv.item():.4f}, G int_cls: {g_loss_internal_cls.item():.4f}, G ext_cls: {g_loss_external_cls.item():.4f}] "
                       f"[LR: {optimizer_G.param_groups[0]['lr']:.1e}]")
-
+            if i==150:
+                g_loss_adversarial.append(g_loss_adv.item())
+                g_loss_internal_classes.append(g_loss_internal_cls.item())
+                g_loss_external_classes.append(g_loss_external_cls.item())
+                g_total_loss.append(g_loss.item())
         scheduler_G.step(); scheduler_D.step()
         if epoch % 2 == 0 or epoch == opt.n_epochs - 1: sample_image_func(8, epoch)
         if opt.save_model and (epoch > 0 and epoch % 10 == 0 or epoch == opt.n_epochs - 1):
             save_model_func(generator, discriminator, epoch, f"models/cgan_epoch_{epoch}.pth")
 
     print("Training completed!")
+    plot3(g_loss_adversarial,g_loss_internal_classes,g_loss_external_classes,g_total_loss)
     if opt.save_model: save_model_func(generator, discriminator, opt.n_epochs, "models/cgan_final.pth")
     if opt.generate_dataset: generate_verification_codes_func(generator, opt.generate_count, opt.output_dir, opt.batch_size)
 

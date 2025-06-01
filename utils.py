@@ -149,3 +149,19 @@ def plot2(len_accs: List, val_accs: List):
     plt.show()
     print("Save the plot to 'acc.png'")
     return
+
+def plot3(loss_adversarial: List, loss_internal_classes: List, loss_external_classes: List, total_loss: List):
+    epochs=range(1,len(loss_adversarial)+1)
+    plt.plot(epochs, loss_adversarial, label=' Adversarial Loss')
+    plt.plot(epochs, loss_internal_classes, label='Internal Classes Loss')
+    plt.plot(epochs, loss_external_classes, label='External Classes Loss')
+    plt.plot(epochs, total_loss, label='Total G Loss', linestyle='--', linewidth=2)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('cGAN : G Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('G_Loss.png')
+    plt.show()
+    print("Save the plot to 'G_Loss.png'")
+    return
