@@ -17,7 +17,7 @@
    ```
 ### 3-2. Automatic download (recommend)
    ```bash
-      python download_dataset.py
+      python download_kaggle_dataset.py
       # The script will handle download, unzip, and license agreement automatically.
    ```
 ### 4. Split dataset
@@ -25,13 +25,12 @@
       python split_dataset.py
       # This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
    ```
-   (After Spliting, you can delete the original dataset downloaded at step 3 if you want. We will no longer use it.)
 ##  Training a model for recognizing verification codes
 ### 1. install environment
 We recommend using Python 3.8 or above.
 #### Use GPU (recommend)
 Please install the correct version of PyTorch that matches your system’s CUDA version (instructions not provided here).
-#### Using CPU Only
+#### Using CPU Only (not recommend)
 You can use :
 ```bash
 pip install torch torchvision torchaudio
@@ -42,13 +41,21 @@ You can install them with the following command :
 ```bash
 pip install -r requirements.txt
 ```
-### 2. Start Recognizing
+### 2-1. Start Recognizing (Use Kaggle Dataset)
 ```bash
-python Recognize.py
+python Recognize.py --dataset 1
 # Average runtime: approximately 1 hour
 ```
-## Results: Test accuracy is about 84%
+### Results: Test accuracy is about 84%
 ![Test result](Recognition_result.png)
+
+### 2-2. Start Recognizing (Use our own Dataset)
+```bash
+python Recognize.py --dataset 2
+# Average runtime: approximately 30 minutes
+```
+### Results: Test accuracy is about 99%
+![Test result](Recognition_result2.png)
 
 ##  Generating CAPTCHA images 
 ### Note
@@ -61,3 +68,5 @@ python cGAN.py --n_epochs 200 --save_model
 ```bash
 python cGAN.py --generate_only --load_model models/cgan_final.pth
 ```
+
+
