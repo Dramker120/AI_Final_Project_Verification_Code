@@ -27,12 +27,12 @@
       python download_ourown_dataset.py
       # The script will handle download, unzip, and license agreement automatically.
    ```
-### 4-1. Split dataset (Kaggle Dataet)
+### 4-1. Split dataset (Kaggle Dataset)
    ```bash
       python split_dataset.py --dataset 1
       # This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
    ```
-### 4-2. Split dataset (Our own Dataet)
+### 4-2. Split dataset (Our own Dataset)
    ```bash
       python split_dataset.py --dataset 2
       # This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
