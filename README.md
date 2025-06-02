@@ -10,19 +10,31 @@
    pip install kaggle
    ```
 ### 2. install kaggle.json (If you've already done this before, just skip this step.)
-### 3-1. Manual download
+### 3-1. Download Kaggle Dataset
+#### 3-1-1. Manual download
    ```bash
    kaggle datasets download -d bhh258/train-num2-var --unzip
    # You might be prompted to accept the license by typing "y" or "yes".
    ```
-### 3-2. Automatic download (recommend)
+#### 3-1-2. Automatic download (recommend)
    ```bash
       python download_kaggle_dataset.py
       # The script will handle download, unzip, and license agreement automatically.
    ```
-### 4. Split dataset
+### 3-2.  Download our own Dataset
+#### Automatic download (recommend)
    ```bash
-      python split_dataset.py
+      python download_ourown_dataset.py
+      # The script will handle download, unzip, and license agreement automatically.
+   ```
+### 4-1. Split dataset (Kaggle Dataet)
+   ```bash
+      python split_dataset.py --dataset 1
+      # This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
+   ```
+### 4-2. Split dataset (Our own Dataet)
+   ```bash
+      python split_dataset.py --dataset 2
       # This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
    ```
 ##  Training a model for recognizing verification codes
@@ -62,7 +74,7 @@ python Recognize.py --dataset 2
 The captcha in the filename now matches the actual image captcha, but it can be further improved.
 ### 1. Train cGAN model
 ```bash
-python cGAN.py --n_epochs 200 --save_model
+python cGAN.py --n_epochs 100 --save_model # You can resize n_epochs by changing '100' to other numbers.
 ```
 ### 2. Generate datasets for recognizing
 ```bash

@@ -1,15 +1,23 @@
 import os
 import random
 import shutil
+import argparse
 
 #Ensure that everyone will get the same train/validate/test dataset
 SEED = 42
 random.seed(SEED)
 
-# input_base = 'data/train_num2_var' # for Kaggle Dataset
-# output_base = 'data' # for Kaggle Dataset
-input_base = 'data/dataset2_images' # for our own Dataset
-output_base = 'data/dataset2_images' # for our own Dataset
+parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', type=int, choices=[1, 2], default=1,
+                    help='選擇資料集版本:1=data/train_num2_var/,2=data/dataset2_images/')
+args = parser.parse_args()
+# 根據 dataset 參數設定 base path
+if args.dataset == 1:
+    input_base = 'data/train_num2_var' # for Kaggle Dataset
+    output_base = 'data' # for Kaggle Dataset
+elif args.dataset == 2:
+    input_base = 'data/dataset2_images' # for our own Dataset
+    output_base = 'data/dataset2_images' # for our own Dataset
 for split in ['train', 'val', 'test']:
     #exist_ok : if the folder already exists, do nothing(no error reported).
     os.makedirs(os.path.join(output_base, split), exist_ok=True)
