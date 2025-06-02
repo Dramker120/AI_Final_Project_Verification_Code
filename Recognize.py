@@ -31,8 +31,8 @@ def main():
     load data
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=int, choices=[1, 2], default=1,
-                        help='選擇資料集版本:1=data/,2=data/dataset2_images/')
+    parser.add_argument('--dataset', type=int, choices=[1, 2, 3], default=1,
+                        help='選擇資料集版本:1=data/,2=data/dataset2_images/,3=data/dataset3_images/')
     args = parser.parse_args()
 
     # 根據 dataset 參數設定 base path
@@ -44,6 +44,10 @@ def main():
         base_path_train = 'data/dataset2_images/train'
         base_path_val = 'data/dataset2_images/val'
         base_path_test = 'data/dataset2_images/test'
+    elif args.dataset == 3:
+        base_path_train = 'data/dataset3_images/train'
+        base_path_val = 'data/dataset3_images/val'
+        base_path_test = 'data/dataset3_images/test'
     logger.info(f"Training use path: {base_path_train}")
     logger.info("Start loading training data")
     train_images, train_labels = load_train_dataset(base_path_train)

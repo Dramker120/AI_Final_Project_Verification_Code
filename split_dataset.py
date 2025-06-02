@@ -8,8 +8,8 @@ SEED = 42
 random.seed(SEED)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=int, choices=[1, 2], default=1,
-                    help='選擇資料集版本:1=data/train_num2_var/,2=data/dataset2_images/')
+parser.add_argument('--dataset', type=int, choices=[1, 2, 3], default=1,
+                    help='選擇資料集版本:1=data/train_num2_var/,2=data/dataset2_images/,3=data/dataset3_images/')
 args = parser.parse_args()
 # 根據 dataset 參數設定 base path
 if args.dataset == 1:
@@ -18,6 +18,9 @@ if args.dataset == 1:
 elif args.dataset == 2:
     input_base = 'data/dataset2_images' # for our own Dataset
     output_base = 'data/dataset2_images' # for our own Dataset
+elif args.dataset == 3:
+    input_base = 'data/dataset3_images' # for our own Dataset (after generating)
+    output_base = 'data/dataset3_images' # for our own Dataset (after generating)
 for split in ['train', 'val', 'test']:
     #exist_ok : if the folder already exists, do nothing(no error reported).
     os.makedirs(os.path.join(output_base, split), exist_ok=True)
@@ -48,4 +51,3 @@ for length in range(4, 8):  # 4~7
             src = os.path.join(folder_path, fname)
             dst = os.path.join(output_base, split, f'{fname}')  # 防重名
             shutil.copy(src, dst)
-

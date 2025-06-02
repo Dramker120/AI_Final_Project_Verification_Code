@@ -69,16 +69,20 @@ python Recognize.py --dataset 2
 ### Results: Test accuracy is about 99%
 ![Test result](Recognition_result2.png)
 
-##  Generating CAPTCHA images 
-### Note
-The captcha in the filename now matches the actual image captcha, but it can be further improved.
-### 1. Train cGAN model
+##  Generating CAPTCHA images and recognizing
+### 1. Train cGAN model and generate dataset
 ```bash
-python cGAN.py --n_epochs 100 --save_model # You can resize n_epochs by changing '100' to other numbers.
+python cGAN.py
 ```
-### 2. Generate datasets for recognizing
+### 2. Split dataset
 ```bash
-python cGAN.py --generate_only --load_model models/cgan_final.pth
+python split_dataset.py --dataset 3
+# This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
 ```
-
-
+### 3. Start recognizing
+```bash
+python Recognize.py --dataset 3
+# Average runtime: approximately 30 minutes
+```
+### Results: Test accuracy is about 95%
+![Test result](Recognition_result3.png)
