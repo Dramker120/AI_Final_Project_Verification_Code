@@ -2,14 +2,14 @@
 
 ## Our Revision Report : [Revision Report](https://docs.google.com/presentation/d/1KrS4LxxDu5PNEDDL7Kq2CilWm1ZMtfKtREevRrvxRUw/edit#slide=id.p)
 ## Dataset Used Source : [Kaggle - train-num2-var by bhh258](https://www.kaggle.com/datasets/bhh258/train-num2-var)
-## 📦 dataset download process
+## 📦 Dataset download process
 (The dataset used in this repository is not included in the GitHub repository due to size and license constraints. Please follow the instructions below to download it.)
 
-### 1. install Kaggle CLI tools：
+### 1. Install Kaggle CLI tools：
    ```bash
    pip install kaggle
    ```
-### 2. install kaggle.json (If you've already done this before, just skip this step.)
+### 2. Install kaggle.json (If you've already done this before, just skip this step.)
 ### 3-1. Download Kaggle Dataset
 #### 3-1-1. Manual download
    ```bash
@@ -38,7 +38,7 @@
       # This script will automatically split the downloaded dataset into training, validation, and test sets (by length and with a fixed seed for reproducibility).
    ```
 ##  Training a model for recognizing verification codes
-### 1. install environment
+### 1. Install environment
 We recommend using Python 3.8 or above.
 #### Use GPU (recommend)
 Please install the correct version of PyTorch that matches your system’s CUDA version (instructions not provided here).
@@ -86,3 +86,18 @@ python Recognize.py --dataset 3
 ```
 ### Results: Test accuracy is about 95%
 ![Test result](Recognition_result3.png)
+
+##  Using our own dataset for training, and using cGAN-generated dataset for testing
+Note:
+Please ensure that Dataset 2 and Dataset 3 have been generated.
+To generate Dataset 2, please execute steps 3-2 and 4-2 in the "Dataset download process" section.
+To generate Dataset 3, please execute steps 1 and 2 in the "Generating CAPTCHA images and recognizing" section.
+
+### 1. Start recognizing
+```bash
+python Recognize.py --dataset 4
+# Parameter 4 indicates the train and validation sets use images from Dataset 2, while the test set uses images from Dataset 3.
+# Average runtime: approximately 20 minutes
+```
+### Results: Test accuracy is about 0.5%
+![Test result](Recognition_result4.png)
