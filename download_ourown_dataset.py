@@ -1,4 +1,3 @@
-# verification_code_dataset.py
 
 import random
 import torch
